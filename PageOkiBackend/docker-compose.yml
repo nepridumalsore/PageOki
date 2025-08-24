@@ -1,0 +1,151 @@
+version: '3.9'
+
+services:
+  # ================= DATABASES ==================
+  user-db:
+    image: postgres:15
+    container_name: user-db
+    environment:
+      POSTGRES_DB: user_db
+      POSTGRES_USER: user_user
+      POSTGRES_PASSWORD: user_pass
+    volumes:
+      - ./init-scripts/user-init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5434:5432"
+
+  search-db:
+    image: postgres:15
+    container_name: search-db
+    environment:
+      POSTGRES_DB: search_db
+      POSTGRES_USER: search_user
+      POSTGRES_PASSWORD: search_pass
+    volumes:
+      - ./init-scripts/search-init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5435:5432"
+
+  title-db:
+    image: postgres:15
+    container_name: title-db
+    environment:
+      POSTGRES_DB: title_db
+      POSTGRES_USER: title_user
+      POSTGRES_PASSWORD: title_pass
+    volumes:
+      - ./init-scripts/title-init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5436:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U title_user -d title_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - PageOki
+
+  admin-db:
+    image: postgres:15
+    container_name: admin-db
+    environment:
+      POSTGRES_DB: admin_db
+      POSTGRES_USER: admin_user
+      POSTGRES_PASSWORD: admin_pass
+    volumes:
+      - ./init-scripts/admin-init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5437:5432"
+
+  auth-db:
+    image: postgres:15
+    container_name: auth-db
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: auth_user
+      POSTGRES_PASSWORD: auth_pass
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./init-scripts/auth-init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U auth_user -d auth_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - PageOki
+
+  # ================= SERVICES ==================
+  authentication-service:
+    build: ./AuthenticationService
+    container_name: PageOki-authentication-service
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://auth-db:5432/auth_db
+      - SPRING_DATASOURCE_USERNAME=auth_user
+      - SPRING_DATASOURCE_PASSWORD=auth_pass
+      - SPRING_DATASOURCE_DRIVER-CLASS-NAME=org.postgresql.Driver
+      - SPRING_JPA_HIBERNATE_DDL-AUTO=update
+      - SPRING_JPA_SHOW-SQL=true
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    networks:
+      - PageOki
+
+  api-gateway:
+    build: ./APIGateWay
+    container_name: PageOki-api-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - authentication-service
+      - title-storage-service
+    networks:
+      - PageOki
+
+  admin-panel-service:
+    build: ./AdminPanelService
+    container_name: PageOki-admin-panel-service
+    ports:
+      - "8085:8085"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://admin-db:5432/admin_db
+      - SPRING_DATASOURCE_USERNAME=admin_user
+      - SPRING_DATASOURCE_PASSWORD=admin_pass
+    depends_on:
+      admin-db:
+        condition: service_healthy
+    networks:
+      - PageOki
+
+  title-storage-service:
+    build: ./TitleStorageService
+    container_name: PageOki-title-storage-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://title-db:5432/title_db
+      - SPRING_DATASOURCE_USERNAME=title_user
+      - SPRING_DATASOURCE_PASSWORD=title_pass
+      - SPRING_DATASOURCE_DRIVER-CLASS-NAME=org.postgresql.Driver
+      - SPRING_JPA_HIBERNATE_DDL-AUTO=update
+      - SPRING_JPA_SHOW-SQL=true
+    depends_on:
+      title-db:
+        condition: service_healthy
+    networks:
+      - PageOki
+
+# ================= NETWORKS & VOLUMES ==================
+networks:
+  PageOki:
+    driver: bridge
+
+volumes:
+  pgdata:
